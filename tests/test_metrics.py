@@ -7,29 +7,90 @@ import random
 import subprocess
 import unittest
 
-import numpy
-from keras import Sequential
-from keras.backend import constant
-from keras.layers import Lambda
-from keras.preprocessing.sequence import pad_sequences
-from keras.preprocessing.text import Tokenizer
-from keras.utils import to_categorical
+import numpy as np
+import pytest
+from sklearn.exceptions import UndefinedMetricWarning
 
-from seqeval.callbacks import F1Metrics
-from seqeval.metrics import (f1_score, accuracy_score, classification_report,
-                             precision_score, recall_score,
-                             performance_measure)
+from seqeval.metrics import (accuracy_score, classification_report, f1_score,
+                             performance_measure, precision_score,
+                             recall_score)
 from seqeval.metrics.sequence_labeling import get_entities
+from seqeval.scheme import IOB2
+
+
+class TestF1score:
+
+    @pytest.mark.parametrize(
+        'mode, scheme',
+        [
+            (None, None),
+            ('strict', IOB2),
+        ]
+    )
+    def test_undefined_metric_warning(self, mode, scheme):
+        with pytest.warns(UndefinedMetricWarning):
+            f1_score([[]], [[]], average='micro', mode=mode, scheme=scheme)
+
+    @pytest.mark.parametrize(
+        'mode, scheme',
+        [
+            (None, None),
+            ('strict', IOB2)
+        ]
+    )
+    def test_runtime_warning(self, mode, scheme):
+        with pytest.warns(RuntimeWarning):
+            f1_score([[]], [[]], average='macro', mode=mode, scheme=scheme)
+
+    @pytest.mark.parametrize(
+        'y_true, y_pred',
+        [
+            ([['O']], [[]]),
+            ([[]], [['O']])
+        ]
+    )
+    def test_value_error(self, y_true, y_pred):
+        with pytest.raises(ValueError):
+            f1_score(y_true, y_pred)
+
+    @pytest.mark.parametrize(
+        'average, expected',
+        [
+            (None, np.array([1])),
+            ('micro', 1),
+            ('macro', 1),
+            ('weighted', 1)
+        ]
+    )
+    def test_conll_f1score(self, average, expected):
+        y_true = [['B-ORG', 'I-ORG']]
+        y_pred = [['I-ORG', 'I-ORG']]
+        f = f1_score(y_true, y_pred, average=average)
+        assert f == expected
+
+    @pytest.mark.parametrize(
+        'average, expected',
+        [
+            (None, np.array([0])),
+            ('micro', 0),
+            ('macro', 0),
+            ('weighted', 0)
+        ]
+    )
+    def test_strict_f1score(self, average, expected):
+        y_true = [['B-ORG', 'I-ORG']]
+        y_pred = [['I-ORG', 'I-ORG']]
+        f = f1_score(y_true, y_pred, average=average, mode='strict', scheme=IOB2)
+        assert f == expected
 
 
 class TestMetrics(unittest.TestCase):
 
-    @classmethod
-    def setUpClass(cls):
-        cls.file_name = os.path.join(os.path.dirname(__file__), 'data/ground_truth.txt')
-        cls.y_true, cls.y_pred = cls.load_labels(cls, cls.file_name)
-        cls.inv_file_name = os.path.join(os.path.dirname(__file__), 'data/ground_truth_inv.txt')
-        cls.y_true_inv, cls.y_pred_inv = cls.load_labels(cls, cls.inv_file_name)
+    def setUp(self):
+        self.file_name = os.path.join(os.path.dirname(__file__), 'data/ground_truth.txt')
+        self.y_true, self.y_pred = self.load_labels(self.file_name)
+        self.inv_file_name = os.path.join(os.path.dirname(__file__), 'data/ground_truth_inv.txt')
+        self.y_true_inv, self.y_pred_inv = self.load_labels(self.inv_file_name)
 
     def test_get_entities(self):
         y_true = ['O', 'O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'O', 'B-PER', 'I-PER']
@@ -39,9 +100,22 @@ class TestMetrics(unittest.TestCase):
         y_true = ['O', 'O', 'O', 'MISC-B', 'MISC-I', 'MISC-I', 'O', 'PER-B', 'PER-I']
         self.assertEqual(get_entities(y_true, suffix=True), [('MISC', 3, 5), ('PER', 7, 8)])
 
+    def test_get_entities_with_non_NE_input(self):
+        y_true = ['O', 'O', 'O', 'MISC', 'MISC', 'MISC', 'O', 'PER', 'PER']
+        with self.assertWarns(UserWarning):
+            get_entities(y_true)
+
+        with self.assertWarns(UserWarning):
+            get_entities(y_true, suffix=True)
+
+    def test_get_entities_with_only_IOB(self):
+        y_true = [['O', 'O', 'O', 'B', 'I', 'I', 'O'], ['B', 'I', 'O']]
+        entities = get_entities(y_true)
+        self.assertEqual(entities, [('_', 3, 5), ('_', 8, 9)])
+
     def test_performance_measure(self):
-        y_true = [['O', 'O', 'O', 'B-MISC', 'I-MISC', 'O', 'B-ORG'], ['B-PER', 'I-PER', 'O']]
-        y_pred = [['O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'O', 'O'], ['B-PER', 'I-PER', 'O']]
+        y_true = [['O', 'O', 'O', 'B-MISC', 'I-MISC', 'O', 'B-ORG'], ['B-PER', 'I-PER', 'O', 'B-PER']]
+        y_pred = [['O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'O', 'O'], ['B-PER', 'I-PER', 'O', 'B-MISC']]
         performance_dict = performance_measure(y_true, y_pred)
         self.assertDictEqual(performance_dict, {
                              'FN': 1, 'FP': 3, 'TN': 4, 'TP': 3})
@@ -106,43 +180,6 @@ class TestMetrics(unittest.TestCase):
                     self.assertLess(abs(f1_pred - f1_true), 1e-4)
 
         os.remove(filepath)
-
-    def test_keras_callback(self):
-        expected_score = f1_score(self.y_true, self.y_pred)
-        tokenizer = Tokenizer(lower=False)
-        tokenizer.fit_on_texts(self.y_true)
-        maxlen = max((len(row) for row in self.y_true))
-
-        def prepare(y, padding):
-            indexes = tokenizer.texts_to_sequences(y)
-            padded = pad_sequences(indexes, maxlen=maxlen, padding=padding, truncating=padding)
-            categorical = to_categorical(padded)
-            return categorical
-
-        for padding in ('pre', 'post'):
-            callback = F1Metrics(id2label=tokenizer.index_word)
-            y_true_cat = prepare(self.y_true, padding)
-            y_pred_cat = prepare(self.y_pred, padding)
-
-            input_shape = (1,)
-            layer = Lambda(lambda _: constant(y_pred_cat), input_shape=input_shape)
-            fake_model = Sequential(layers=[layer])
-            callback.set_model(fake_model)
-
-            X = numpy.zeros((y_true_cat.shape[0], 1))
-
-            # Verify that the callback translates sequences correctly by itself
-            y_true_cb, y_pred_cb = callback.predict(X, y_true_cat)
-            self.assertEqual(y_pred_cb, self.y_pred)
-            self.assertEqual(y_true_cb, self.y_true)
-
-            # Verify that the callback stores the correct number in logs
-            fake_model.compile(optimizer='adam', loss='categorical_crossentropy')
-            history = fake_model.fit(x=X, batch_size=y_true_cat.shape[0], y=y_true_cat,
-                                     validation_data=(X, y_true_cat),
-                                     callbacks=[callback])
-            actual_score = history.history['f1'][0]
-            self.assertAlmostEqual(actual_score, expected_score)
 
     def load_labels(self, filename):
         y_true, y_pred = [], []

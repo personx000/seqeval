@@ -6,7 +6,6 @@ import sys
 
 from setuptools import find_packages, setup
 
-
 # Package meta-data.
 NAME = 'seqeval'
 DESCRIPTION = 'Testing framework for sequence labeling'
@@ -23,7 +22,7 @@ if sys.argv[-1] == 'publish':
     os.system('python setup.py sdist bdist_wheel upload')
     sys.exit()
 
-required = ['numpy>=1.14.0', 'Keras>=2.2.4']
+required = ['numpy>=1.14.0', 'scikit-learn>=0.21.3']
 
 setup(
     name=NAME,
@@ -38,21 +37,17 @@ setup(
     packages=find_packages(exclude=('tests',)),
     install_requires=required,
     extras_require={
-        'cpu': ['tensorflow>=1.13.1'],
-        'gpu': ['tensorflow-gpu'],
+        'cpu': [],
+        'gpu': [],
     },
     include_package_data=True,
     license=LICENSE,
     classifiers=[
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python',
-        'Programming Language :: Python :: 2.6',
-        'Programming Language :: Python :: 2.7',
-        'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.3',
-        'Programming Language :: Python :: 3.4',
-        'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: Implementation :: CPython',
         'Programming Language :: Python :: Implementation :: PyPy'
     ],
